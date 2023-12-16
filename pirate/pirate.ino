@@ -7,13 +7,16 @@
 //
 
 #include <Arduino.h>
-#include "AS5600.h"    // https://github.com/RobTillaart/AS5600
+#include <EEPROM.h>
+#include <AS5600.h>    // https://github.com/RobTillaart/AS5600
 #include "strip.h"
 #include "player.h"
 #include "util.h"
 
+#define SEQ_LEN 7
+
 AS5600 as5600;
-Strip<7, D5> leds;
+Strip<SEQ_LEN, D5> leds;
 Player player;
 
 enum LedState {
@@ -42,6 +45,20 @@ int32_t get_rotary_abs_pos(int32_t hysteresis) {
 
 int32_t get_wheel_pos() {
     return asym_div(get_rotary_abs_pos(100), 4096 / 4);
+}
+
+void generate_sequence(int *seq_out, int seq_len, int seed) {
+    Serial.printf("seed=%d\n", seed);
+    if (seed == 0)    // avoid zero because randomSeed(0) has no effect.
+        seed = -1;
+    randomSeed(seed);
+    for (int i = 0; i < seq_len; i++) {
+        int v = random(1, 4);
+        if (random(2))
+            v = -v;
+        Serial.printf("seq[%d]=%d\n", i, v);
+        seq_out[i] = v;
+    }
 }
 
 void setup() {
@@ -95,7 +112,12 @@ void led_control(int step, LedState state) {
 void loop() {
     digitalWrite(D1, HIGH);    // enable audio
 
-    int sequence[] = { 2, 1, -2, 3, -1, -1, 2 };
+    EEPROM.begin(1);
+    uint8_t seed = EEPROM.read(0);
+
+    int sequence[SEQ_LEN];
+    generate_sequence(sequence, ARRAY_LEN(sequence), seed);
+
     int step = 0;
     int start_pos = get_wheel_pos();
     int prev_pos = start_pos;
@@ -139,11 +161,14 @@ void loop() {
         delay(100);
     }
 
+    EEPROM.write(0, seed + 1);
+    EEPROM.end();
+
     player.push_beep(2000, 0.1, 0.2);
     delay(100);
     player.push_beep(2000, 0.1, 0.2);
 
-    digitalWrite(D8, 1);
+    digitalWrite(D8, 1);    // open the lock
     delay(2000);
     digitalWrite(D8, 0);
 
